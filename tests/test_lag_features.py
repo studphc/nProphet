@@ -25,3 +25,4 @@ def test_prepare_lag_conversion_features():
     result = fc.monthly_lag_features
     assert {"ds", "mean_lag", "p90_lag", "max_lag", "conv_ma3"}.issubset(result.columns)
     assert len(result) == 2
+    assert pd.api.types.is_datetime64_any_dtype(result["ds"])

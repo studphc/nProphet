@@ -287,6 +287,7 @@ class NProphetForecaster:
             lag_stats.join(conv_ma3.rename("conv_ma3"))
             .reset_index()
             .rename(columns={"DeliveryYM": "ds"})
+            .assign(ds=lambda d: d["ds"].dt.to_timestamp())
         )
 
     def create_features(self, df):
@@ -296,7 +297,9 @@ class NProphetForecaster:
             self.wd_lookup.reset_index(name="working_days"), on="ds", how="left"
         )
         if hasattr(self, "monthly_lag_features"):
-            df = df.merge(self.monthly_lag_features, on="ds", how="left")
+            ml = self.monthly_lag_features.copy()
+            ml["ds"] = pd.to_datetime(ml["ds"], errors="coerce")
+            df = df.merge(ml, on="ds", how="left")
         df["working_days"] = (
             df["working_days"].replace(0, 1).fillna(int(self.wd_lookup.median()))
         )
@@ -1021,7 +1024,9 @@ class NProphetForecaster:
 
         self.prepare_lag_and_conversion_metrics()
         if hasattr(self, "monthly_lag_features"):
-            df_hist = df_hist.merge(self.monthly_lag_features, on="ds", how="left")
+            ml = self.monthly_lag_features.copy()
+            ml["ds"] = pd.to_datetime(ml["ds"], errors="coerce")
+            df_hist = df_hist.merge(ml, on="ds", how="left")
 
         if len(df_hist) < self.config["CV_SPLITS"] * 2:
             print(
