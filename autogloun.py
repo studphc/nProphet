@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 import torch
 import duckdb
+import holidays
 from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
 
 
