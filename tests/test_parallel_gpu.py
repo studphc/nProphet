@@ -65,7 +65,9 @@ def test_lightgbm_uses_gpu_param(monkeypatch):
         "y_norm_std3",
     ]
     fc.train_lightgbm_model(df, features)
-    assert fc.lgbm_model.get_params().get("device_type") == "gpu"
+    params = fc.lgbm_model.get_params()
+    assert params.get("device_type") == "gpu"
+    assert params.get("verbosity") == -1
 
 
 def test_optuna_passes_n_jobs(monkeypatch):

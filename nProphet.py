@@ -9,7 +9,7 @@
 
 import os
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import pandas as pd
 import numpy as np
 import torch
@@ -390,7 +390,7 @@ class NProphetForecaster:
                     n_estimators=500,
                     seed=self.config["SEED"],
                 )
-                with self.suppress_stdout():
+                with suppress_ctx():
                     temp_lgbm_model.fit(
                         train_df[feature_names],
                         train_df["y_norm"],
@@ -451,6 +451,7 @@ class NProphetForecaster:
         pruner = optuna.pruners.MedianPruner()
         study = optuna.create_study(direction="minimize", pruner=pruner)
         n_jobs = os.cpu_count() or 1
+        suppress_ctx = self.suppress_stdout if n_jobs == 1 else nullcontext
         study.optimize(
             objective,
             n_trials=self.config["N_TRIALS"],
@@ -519,6 +520,7 @@ class NProphetForecaster:
             "n_estimators": 2000,
             "learning_rate": 0.05,
             "verbose": -1,
+            "verbosity": -1,
             "n_jobs": -1,
             "seed": self.config["SEED"],
         }
@@ -760,7 +762,7 @@ class NProphetForecaster:
             temp_lgbm_model = lgbm.LGBMRegressor(
                 objective="regression_l1", n_estimators=500, seed=self.config["SEED"]
             )
-            with self.suppress_stdout():
+            with suppress_ctx():
                 temp_lgbm_model.fit(
                     train_df[feature_names],
                     train_df["y_norm"],
