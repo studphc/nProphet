@@ -40,3 +40,12 @@
 하이퍼파라미터 최적화 과정에서 자동으로 조정됩니다. 기본값은 두 항목 모두 `0.5`입니다.
 또한 `SIMULATION_DAY_OF_MONTH`에 정수를 지정하면 해당 일자 기준으로 백테스트를 수행하며,
 `auto`(또는 `today`)로 설정하면 실행 당일 날짜를 사용합니다.
+
+## AutoGluon 기반 모델
+`autogloun.py` 스크립트는 AutoGluon Time Series를 활용해 GPU 환경에서 간단히 예측을 수행하는 예제입니다. 기존 로직과 동일한 데이터 전처리를 사용하며,
+AutoGluon과 holidays 패키지가 설치되어 있어야 합니다. AutoGluon v0.8 이상에서는 `TimeSeriesDataFrame.from_data_frame()`에 `freq` 인자를 전달하지 않습니다.
+다음 명령어로 실행할 수 있습니다.
+
+```bash
+python autogloun.py
+```

@@ -6,3 +6,7 @@
 - 당월 예측값이 현재 확정 매출보다 작지 않도록 하한 보정 로직 추가.
 - 모든 메서드에 한글 docstring을 작성.
 - `SIMULATION_DAY_OF_MONTH`에 `auto` 옵션을 추가해 실행 시점 날짜 자동 적용.
+- AutoGluon Time Series 기반 단순 예측 스크립트 `autogloun.py` 추가.
+- 해당 스크립트를 위한 단위 테스트 `test_autogloun.py` 작성.
+- `holidays` 미사용 오류 수정 및 의존성 업데이트.
+- AutoGluon API 변경으로 `freq` 인자를 제거하여 스크립트 실행 오류 수정.
