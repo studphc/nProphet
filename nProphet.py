@@ -1058,7 +1058,7 @@ class NProphetForecaster:
         ]["NetAmount"].sum()
 
         last_inv_date = self.today
-        if self.config.get("INCLUDE_KNOWN_INVOICES", False):
+        if self.config.get("INCLUDE_KNOWN_INVOICES", True):
             add_amt, last_inv_date = self._get_known_invoices_current_month(date_column)
             actual_del_todate += add_amt
 
@@ -1166,7 +1166,7 @@ if __name__ == "__main__":
         "BACKTEST_TUNE_EPOCHS": 50,
         "CONFORMAL_ALPHA": 0.05,
         "SIMULATION_DAY_OF_MONTH": 20,
-        "INCLUDE_KNOWN_INVOICES": False,
+        "INCLUDE_KNOWN_INVOICES": True,
     }
 
     forecaster = NProphetForecaster(config)

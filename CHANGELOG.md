@@ -7,3 +7,4 @@
 - 모든 메서드에 한글 docstring을 작성.
 - `SIMULATION_DAY_OF_MONTH`에 `auto` 옵션을 추가해 실행 시점 날짜 자동 적용.
 - `INCLUDE_KNOWN_INVOICES` 옵션을 추가해 당월 확정 인보이스를 실적에 포함 가능하도록 지원.
+- 해당 옵션의 기본값을 `True`로 변경하여 자동 적용되도록 개선.
