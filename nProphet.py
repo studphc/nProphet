@@ -244,8 +244,9 @@ class NProphetForecaster:
         study = optuna.create_study(direction='minimize', pruner=pruner)
         study.optimize(objective, n_trials=self.config['N_TRIALS'], show_progress_bar=True)
         self.best_params = study.best_trial.params
-        self.config['PATTERN_WEIGHT'] = self.best_params.get('w_pattern', self.config['PATTERN_WEIGHT'])
-        self.config['ENSEMBLE_WEIGHT_MLP'] = self.best_params.get('w_mlp', self.config['ENSEMBLE_WEIGHT_MLP'])
+        # 초기 설정이 없을 수 있으므로 기본값을 사용해 안전하게 갱신
+        self.config['PATTERN_WEIGHT'] = self.best_params.get('w_pattern', self.config.get('PATTERN_WEIGHT', 0.5))
+        self.config['ENSEMBLE_WEIGHT_MLP'] = self.best_params.get('w_mlp', self.config.get('ENSEMBLE_WEIGHT_MLP', 0.5))
         print(f"\nBest hyperparameters and weights found: {self.best_params}")
 
     def refit_on_full_data(self, df_full_features, feature_names):
@@ -578,6 +579,9 @@ if __name__ == "__main__":
         'RESIDUAL_PLOT_SAVE_PATH': './data/reports/residuals_histogram.png',
         'TRAINING_START_DATE': '2021-01-01',
         'SEED': 42, 'Y_SCALE': 1e7,
+        # 앙상블 가중치 기본값을 명시적으로 설정
+        'PATTERN_WEIGHT': 0.5,
+        'ENSEMBLE_WEIGHT_MLP': 0.5,
         'ENSEMBLE_WEIGHT_RANGE': (0.4, 0.8),
         'PATTERN_WEIGHT_RANGE':  (0.3, 0.9),
         'REFIT_EPOCHS': 500, 'REFIT_LRP_PATIENCE': 20,
