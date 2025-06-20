@@ -142,7 +142,7 @@ class NProphetForecaster:
         ws = merged[merged['IsHoliday'] == 0].copy()
         if ws.empty:
             print("Warning: No working day sales data found."); self.daily_weights_del = [1.0/23]*23; return
-        ws['ds'] = ws['Date'].dt.floor('MS')
+        ws['ds'] = ws['Date'].dt.to_period('M').dt.to_timestamp()
         ws['working_day_of_month'] = ws.groupby('ds').cumcount()
         monthly_totals = ws.groupby('ds')['daily_y'].sum().rename('monthly_y')
         ws = ws.join(monthly_totals, on='ds')
@@ -210,7 +210,12 @@ class NProphetForecaster:
                     optimizer.zero_grad(); loss.backward(); optimizer.step()
                 temp_lgbm_model = lgbm.LGBMRegressor(objective='regression_l1', n_estimators=500, seed=self.config['SEED'])
                 with self.suppress_stdout():
-                    temp_lgbm_model.fit(train_df[feature_names], train_df['y_norm'], callbacks=[lgbm.early_stopping(50, verbose=False)])
+                    temp_lgbm_model.fit(
+                        train_df[feature_names],
+                        train_df['y_norm'],
+                        eval_set=[(train_df[feature_names], train_df['y_norm'])],
+                        callbacks=[lgbm.early_stopping(50, verbose=False)],
+                    )
                 X_test_scaled = temp_scaler.transform(test_df[feature_names])
                 temp_mlp_model.eval()
                 with torch.no_grad(): mlp_pred = temp_mlp_model(torch.tensor(X_test_scaled, dtype=torch.float32).to(self.device)).item()
@@ -239,8 +244,9 @@ class NProphetForecaster:
         study = optuna.create_study(direction='minimize', pruner=pruner)
         study.optimize(objective, n_trials=self.config['N_TRIALS'], show_progress_bar=True)
         self.best_params = study.best_trial.params
-        self.config['PATTERN_WEIGHT'] = self.best_params.get('w_pattern', self.config['PATTERN_WEIGHT'])
-        self.config['ENSEMBLE_WEIGHT_MLP'] = self.best_params.get('w_mlp', self.config['ENSEMBLE_WEIGHT_MLP'])
+        # 초기 설정이 없을 수 있으므로 기본값을 사용해 안전하게 갱신
+        self.config['PATTERN_WEIGHT'] = self.best_params.get('w_pattern', self.config.get('PATTERN_WEIGHT', 0.5))
+        self.config['ENSEMBLE_WEIGHT_MLP'] = self.best_params.get('w_mlp', self.config.get('ENSEMBLE_WEIGHT_MLP', 0.5))
         print(f"\nBest hyperparameters and weights found: {self.best_params}")
 
     def refit_on_full_data(self, df_full_features, feature_names):
@@ -290,7 +296,7 @@ class NProphetForecaster:
         print("Querying future commitments...")
         future_data = self.stock_base_df[self.stock_base_df[date_column] >= self.first_of_next_month].copy()
         if future_data.empty: return pd.Series(dtype='float64')
-        future_data['ds'] = future_data[date_column].dt.floor('MS')
+        future_data['ds'] = future_data[date_column].dt.to_period('M').dt.to_timestamp()
         return future_data.groupby('ds')['NetAmount'].sum()
 
     def _generate_future_forecast(self, df_full_features, future_commitments):
@@ -378,7 +384,12 @@ class NProphetForecaster:
                 temp_optimizer.zero_grad(); loss.backward(); temp_optimizer.step()
             temp_lgbm_model = lgbm.LGBMRegressor(objective='regression_l1', n_estimators=500, seed=self.config['SEED'])
             with self.suppress_stdout():
-                temp_lgbm_model.fit(train_df[feature_names], train_df['y_norm'], callbacks=[lgbm.early_stopping(50, verbose=False)])
+                temp_lgbm_model.fit(
+                    train_df[feature_names],
+                    train_df['y_norm'],
+                    eval_set=[(train_df[feature_names], train_df['y_norm'])],
+                    callbacks=[lgbm.early_stopping(50, verbose=False)],
+                )
             temp_mlp_model.eval()
             with torch.no_grad(): mlp_pred = temp_mlp_model(torch.tensor(X_test_scaled, dtype=torch.float32).to(self.device)).item()
             lgbm_pred = temp_lgbm_model.predict(test_df[feature_names])[0]
@@ -497,7 +508,7 @@ class NProphetForecaster:
         self.get_complete_calendar()
         
         df_hist = self.stock_base_df[(self.stock_base_df[date_column].notna()) & (self.stock_base_df[date_column] < self.first_of_month)].copy()
-        df_hist['ds'] = df_hist[date_column].dt.floor('MS')
+        df_hist['ds'] = df_hist[date_column].dt.to_period('M').dt.to_timestamp()
         df_hist = df_hist.groupby('ds').agg(y=('NetAmount', 'sum')).reset_index()
         
         if len(df_hist) < self.config['CV_SPLITS'] * 2:
@@ -525,7 +536,7 @@ class NProphetForecaster:
         current_month_wd = self.wd_lookup.get(self.first_of_month, int(self.wd_lookup.median()))
         model_based_monthly_pred_mean = np.mean(model_pred_dist) * self.config['Y_SCALE'] * current_month_wd
         
-        actual_del_todate_df = self.stock_base_df[self.stock_base_df[date_column].dt.floor('MS') == self.first_of_month]
+        actual_del_todate_df = self.stock_base_df[self.stock_base_df[date_column].dt.to_period('M').dt.to_timestamp() == self.first_of_month]
         actual_del_todate = actual_del_todate_df[actual_del_todate_df[date_column] <= self.today]['NetAmount'].sum()
 
         working_days_so_far = len(self.calendar_full[(self.calendar_full['ds'] == self.first_of_month) & (self.calendar_full['Date'] <= self.today) & (self.calendar_full['IsHoliday']==0)])
@@ -568,6 +579,9 @@ if __name__ == "__main__":
         'RESIDUAL_PLOT_SAVE_PATH': './data/reports/residuals_histogram.png',
         'TRAINING_START_DATE': '2021-01-01',
         'SEED': 42, 'Y_SCALE': 1e7,
+        # 앙상블 가중치 기본값을 명시적으로 설정
+        'PATTERN_WEIGHT': 0.5,
+        'ENSEMBLE_WEIGHT_MLP': 0.5,
         'ENSEMBLE_WEIGHT_RANGE': (0.4, 0.8),
         'PATTERN_WEIGHT_RANGE':  (0.3, 0.9),
         'REFIT_EPOCHS': 500, 'REFIT_LRP_PATIENCE': 20,
