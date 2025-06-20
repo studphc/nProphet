@@ -6,3 +6,5 @@
 - 당월 예측값이 현재 확정 매출보다 작지 않도록 하한 보정 로직 추가.
 - 모든 메서드에 한글 docstring을 작성.
 - `SIMULATION_DAY_OF_MONTH`에 `auto` 옵션을 추가해 실행 시점 날짜 자동 적용.
+- `CONFORMAL_MODE`(`global`/`monthwise`)와 `MAX_ABS_DELTA` 설정을 도입해 예측
+  구간 보정 방식을 확장.

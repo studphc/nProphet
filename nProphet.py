@@ -78,7 +78,7 @@ class NProphetForecaster:
         self.mlp_model, self.lgbm_model, self.scaler = None, None, None
         self.wd_lookup, self.calendar_full, self.daily_weights_del = None, None, None
         self.best_params, self.seasonal_factors, self.lgbm_residual_mae = {}, {}, 0.0
-        self.conformal_delta = 0.0
+        self.conformal_delta = 0.0  # Scalar or dict for monthwise mode
         self.lgbm_feature_names_ = None
 
     @staticmethod
@@ -591,9 +591,10 @@ class NProphetForecaster:
             forecast_source = (
                 "AI 주도" if final_mean == adjusted_ai_mean else "확정매출 기반"
             )
+            delta = self._get_conformal_delta_for_month(m_date)
             final_lower, final_upper = (
-                final_mean - self.conformal_delta,
-                final_mean + self.conformal_delta,
+                final_mean - delta,
+                final_mean + delta,
             )
             future_months_list.append(
                 {
@@ -784,13 +785,40 @@ class NProphetForecaster:
             print("Warning: Backtest data is empty.")
             self.conformal_delta = 0.0
             return
+
+        mode = self.config.get("CONFORMAL_MODE", "global").lower()
         target_alpha = self.config["CONFORMAL_ALPHA"]
+        max_abs = self.config.get("MAX_ABS_DELTA")
+
         abs_residuals = np.abs(backtest_eval_df["y_true"] - backtest_eval_df["yhat"])
-        delta_q = np.quantile(abs_residuals, 1 - target_alpha)
-        self.conformal_delta = delta_q
-        print(
-            f"Conformal delta (q_hat) for {100 * (1 - target_alpha):.1f}% CI calculated: {delta_q:,.0f} KRW"
-        )
+        if max_abs is not None:
+            abs_residuals = abs_residuals.clip(upper=max_abs)
+
+        if mode == "monthwise":
+            backtest_eval_df = backtest_eval_df.copy()
+            backtest_eval_df["month"] = backtest_eval_df["ds"].dt.to_period("M").dt.to_timestamp()
+            grouped = abs_residuals.groupby(backtest_eval_df["month"])
+            delta_map = grouped.quantile(1 - target_alpha).to_dict()
+            global_delta = float(np.quantile(abs_residuals, 1 - target_alpha))
+            delta_map["global"] = global_delta
+            self.conformal_delta = delta_map
+            print(
+                f"Monthwise conformal deltas calculated with overall q_hat {global_delta:,.0f} KRW"
+            )
+        else:
+            delta_q = float(np.quantile(abs_residuals, 1 - target_alpha))
+            self.conformal_delta = delta_q
+            print(
+                f"Conformal delta (q_hat) for {100 * (1 - target_alpha):.1f}% CI calculated: {delta_q:,.0f} KRW"
+            )
+
+    def _get_conformal_delta_for_month(self, month_ts: pd.Timestamp) -> float:
+        """특정 월에 적용할 보정값을 반환한다."""
+
+        mode = self.config.get("CONFORMAL_MODE", "global").lower()
+        if mode == "monthwise" and isinstance(self.conformal_delta, dict):
+            return float(self.conformal_delta.get(month_ts, self.conformal_delta.get("global", 0.0)))
+        return float(self.conformal_delta)
 
     def _save_report_to_file(self, report_data):
         """예측 결과 리포트를 텍스트로 저장한다."""
@@ -1007,12 +1035,18 @@ class NProphetForecaster:
         if backtest_results_df is not None:
             self._calculate_conformal_delta(backtest_results_df)
             self._plot_residuals_histogram(backtest_results_df)
-            backtest_results_df["yhat_lower_conf"] = (
-                backtest_results_df["yhat"] - self.conformal_delta
-            )
-            backtest_results_df["yhat_upper_conf"] = (
-                backtest_results_df["yhat"] + self.conformal_delta
-            )
+            mode = self.config.get("CONFORMAL_MODE", "global").lower()
+            if mode == "monthwise" and isinstance(self.conformal_delta, dict):
+                backtest_results_df = backtest_results_df.copy()
+                backtest_results_df["month"] = backtest_results_df["ds"].dt.to_period("M").dt.to_timestamp()
+                backtest_results_df["delta"] = backtest_results_df["month"].map(self.conformal_delta).fillna(
+                    self.conformal_delta.get("global", 0.0)
+                )
+                backtest_results_df["yhat_lower_conf"] = backtest_results_df["yhat"] - backtest_results_df["delta"]
+                backtest_results_df["yhat_upper_conf"] = backtest_results_df["yhat"] + backtest_results_df["delta"]
+            else:
+                backtest_results_df["yhat_lower_conf"] = backtest_results_df["yhat"] - self.conformal_delta
+                backtest_results_df["yhat_upper_conf"] = backtest_results_df["yhat"] + self.conformal_delta
             evaluation_results["PICP"] = (
                 np.mean(
                     (
@@ -1069,8 +1103,9 @@ class NProphetForecaster:
             working_days_so_far,
             current_month_wd,
         )
-        final_monthly_lower = final_monthly_mean - self.conformal_delta
-        final_monthly_upper = final_monthly_mean + self.conformal_delta
+        delta_current = self._get_conformal_delta_for_month(self.first_of_month)
+        final_monthly_lower = final_monthly_mean - delta_current
+        final_monthly_upper = final_monthly_mean + delta_current
 
         future_commitments = self._get_future_commitments(date_column)
         future_preds_df = self._generate_future_forecast(
@@ -1115,6 +1150,7 @@ class NProphetForecaster:
                 "lower": annual_pred_lower,
                 "upper": annual_pred_upper,
             },
+            "conformal_delta": delta_current,
         }
 
         self._save_report_to_file(report_data)
@@ -1148,6 +1184,8 @@ if __name__ == "__main__":
         "BACKTEST_MONTHS": 12,
         "BACKTEST_TUNE_EPOCHS": 50,
         "CONFORMAL_ALPHA": 0.05,
+        "CONFORMAL_MODE": "global",
+        "MAX_ABS_DELTA": None,
         "SIMULATION_DAY_OF_MONTH": 20,
     }
 
