@@ -407,14 +407,24 @@ class NProphetForecaster:
         return eval_df, {'SMAPE': smape, 'MAE': mae}
 
     def _calculate_conformal_delta(self, backtest_eval_df):
+        """마지막 n개월을 Calibration 셋으로 사용해 delta 값을 구한다."""
         print("Calibrating prediction interval with Conformal method...")
         if backtest_eval_df.empty:
-            print("Warning: Backtest data is empty."); self.conformal_delta = 0.0; return
+            print("Warning: Backtest data is empty.")
+            self.conformal_delta = 0.0
+            return
+
         target_alpha = self.config['CONFORMAL_ALPHA']
-        abs_residuals = np.abs(backtest_eval_df['y_true'] - backtest_eval_df['yhat'])
-        delta_q = np.quantile(abs_residuals, 1 - target_alpha)
+        calib_months = self.config.get('CALIBRATION_MONTHS', 3)
+        calib_df = (
+            backtest_eval_df.sort_values('ds').tail(calib_months)
+        )
+        abs_residuals = (calib_df['y_true'] - calib_df['yhat']).abs()
+        delta_q = abs_residuals.quantile(1 - target_alpha)
         self.conformal_delta = delta_q
-        print(f"Conformal delta (q_hat) for {100*(1-target_alpha):.1f}% CI calculated: {delta_q:,.0f} KRW")
+        print(
+            f"Conformal delta (q_hat) for {100 * (1 - target_alpha):.1f}% CI calculated: {delta_q:,.0f} KRW"
+        )
 
     def _save_report_to_file(self, report_data):
         path = self.config['REPORT_SAVE_PATH']
@@ -587,7 +597,9 @@ if __name__ == "__main__":
         'REFIT_EPOCHS': 500, 'REFIT_LRP_PATIENCE': 20,
         'TUNE_EPOCHS': 100, 'N_TRIALS': 70, 'CV_SPLITS': 3,
         'MC_ITERATIONS': 100,
-        'BACKTEST_MONTHS': 12, 'BACKTEST_TUNE_EPOCHS': 50,
+        'BACKTEST_MONTHS': 24,
+        'BACKTEST_TUNE_EPOCHS': 50,
+        'CALIBRATION_MONTHS': 3,
         'CONFORMAL_ALPHA': 0.05,
         'SIMULATION_DAY_OF_MONTH': 20,
     }
