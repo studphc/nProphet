@@ -1,5 +1,5 @@
 """autogloun.py
-AutoGluon을 활용한 매출 예측 모델.
+AutoGluon Time Series를 활용한 매출 예측 모델.
 """
 
 import os
@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 import torch
 import duckdb
-from autogluon.tabular import TabularPredictor
+from autogluon.timeseries import TimeSeriesDataFrame, TimeSeriesPredictor
 
 
 def set_seed(seed: int) -> None:
@@ -226,21 +226,23 @@ class AutoGluonForecaster:
         blended = (pattern_based_projection * w_dynamic) + (ai_prediction * (1 - w_dynamic))
         return max(blended, actual_so_far), w_dynamic
 
-    def train_autogluon_model(self, df_features: pd.DataFrame, feature_names: list[str]) -> None:
-        """AutoGluon 모델을 학습한다."""
-        train_df = df_features[feature_names + ["y_norm"]].copy()
+    def train_autogluon_model(self, df_hist: pd.DataFrame) -> TimeSeriesDataFrame:
+        """AutoGluon TimeSeriesPredictor 학습."""
+        ts_df = df_hist.rename(columns={"ds": "timestamp", "y": "target"}).copy()
+        ts_df["item_id"] = "sales"
+        ts_data = TimeSeriesDataFrame.from_data_frame(ts_df, freq="MS")
         with self.suppress_stdout():
-            self.predictor = (
-                TabularPredictor(label="y_norm", problem_type="regression")
-                .fit(train_df, presets="best_quality", num_gpus=1 if torch.cuda.is_available() else 0)
-            )
+            self.predictor = TimeSeriesPredictor(
+                prediction_length=1, target="target", freq="MS"
+            ).fit(train_data=ts_data)
+        return ts_data
 
-    def _forecast_next_month(self, df_features: pd.DataFrame, feature_names: list[str]) -> float:
+    def _forecast_next_month(self, ts_data: TimeSeriesDataFrame) -> float:
         """다음 달 예측치를 반환한다."""
-        last_row = df_features.tail(1)[feature_names]
-        pred = self.predictor.predict(last_row)[0]
+        forecast = self.predictor.predict(ts_data)
+        pred = forecast.loc["sales"].iloc[-1]
         working_days = self.wd_lookup.get(self.first_of_month, int(self.wd_lookup.median()))
-        return pred * self.config["Y_SCALE"] * working_days
+        return float(pred) * self.config["Y_SCALE"] * working_days
 
     def run(self, date_column: str = "DeliveryDate") -> None:
         """예측 파이프라인 전체를 실행한다."""
@@ -258,9 +260,8 @@ class AutoGluonForecaster:
             return
         self.calculate_daily_weights(date_column)
         self.calculate_seasonal_factors(df_hist)
-        df_full_features, feature_names = self.create_features(df_hist.copy())
-        self.train_autogluon_model(df_full_features, feature_names)
-        model_pred = self._forecast_next_month(df_full_features, feature_names)
+        ts_data = self.train_autogluon_model(df_hist.copy())
+        model_pred = self._forecast_next_month(ts_data)
         print(f"다음 달 예측 매출: {model_pred:,.0f} KRW")
 
 
