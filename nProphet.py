@@ -237,12 +237,63 @@ class NProphetForecaster:
             {k: round(v, 2) for k, v in self.seasonal_factors.items()},
         )
 
+    def prepare_lag_and_conversion_metrics(self):
+        """인보이스 지연과 전이율 지표를 생성한다."""
+
+        df = self.stock_base_df
+        if df is None:
+            self.monthly_lag_features = pd.DataFrame(
+                columns=["ds", "mean_lag", "p90_lag", "max_lag", "conv_ma3"]
+            )
+            return
+
+        df = df[
+            df["DeliveryDate"].notna()
+            & df["InvoiceDate"].notna()
+            & (df["DeliveryDate"] < self.first_of_month)
+        ].copy()
+        if df.empty:
+            self.monthly_lag_features = pd.DataFrame(
+                columns=["ds", "mean_lag", "p90_lag", "max_lag", "conv_ma3"]
+            )
+            return
+
+        df["lag_days"] = (
+            df["InvoiceDate"] - df["DeliveryDate"]
+        ).dt.days.clip(lower=0)
+        df["DeliveryYM"] = df["DeliveryDate"].dt.to_period("M")
+        df["InvoiceYM"] = df["InvoiceDate"].dt.to_period("M")
+
+        lag_stats = df.groupby("DeliveryYM")["lag_days"].agg(
+            mean_lag="mean",
+            p90_lag=lambda x: x.quantile(0.9),
+            max_lag="max",
+        )
+
+        qty_col = "Quantity" if "Quantity" in df.columns else "NetAmount"
+        deliveries = df.groupby("DeliveryYM")[qty_col].sum()
+        invoice_same = (
+            df[df["DeliveryYM"] == df["InvoiceYM"]]
+            .groupby("DeliveryYM")[qty_col]
+            .sum()
+        )
+        conv = invoice_same / deliveries
+        conv_ma3 = conv.rolling(3).mean()
+
+        self.monthly_lag_features = (
+            lag_stats.join(conv_ma3.rename("conv_ma3"))
+            .reset_index()
+            .rename(columns={"DeliveryYM": "ds"})
+        )
+
     def create_features(self, df):
         """모델 학습에 필요한 피처를 생성한다."""
 
         df = df.merge(
             self.wd_lookup.reset_index(name="working_days"), on="ds", how="left"
         )
+        if hasattr(self, "monthly_lag_features"):
+            df = df.merge(self.monthly_lag_features, on="ds", how="left")
         df["working_days"] = (
             df["working_days"].replace(0, 1).fillna(int(self.wd_lookup.median()))
         )
@@ -273,6 +324,10 @@ class NProphetForecaster:
             "y_norm_lag12",
             "y_norm_ma3",
             "y_norm_std3",
+            "mean_lag",
+            "p90_lag",
+            "max_lag",
+            "conv_ma3",
         ]
         for col in feature_names:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -960,6 +1015,10 @@ class NProphetForecaster:
         ].copy()
         df_hist["ds"] = df_hist[date_column].dt.to_period("M").dt.to_timestamp()
         df_hist = df_hist.groupby("ds").agg(y=("NetAmount", "sum")).reset_index()
+
+        self.prepare_lag_and_conversion_metrics()
+        if hasattr(self, "monthly_lag_features"):
+            df_hist = df_hist.merge(self.monthly_lag_features, on="ds", how="left")
 
         if len(df_hist) < self.config["CV_SPLITS"] * 2:
             print(
