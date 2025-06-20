@@ -1,0 +1,11 @@
+pandas
+numpy
+torch
+scikit-learn
+matplotlib
+duckdb
+holidays
+optuna
+joblib
+lightgbm
+tqdm
