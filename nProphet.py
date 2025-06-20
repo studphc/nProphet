@@ -920,7 +920,7 @@ class NProphetForecaster:
         actual_so_far: float,
         working_days_so_far: int,
         total_working_days: int,
-    ) -> float:
+    ) -> tuple[float, float]:
         """패턴 예측과 AI 예측을 동적으로 블렌딩한다.
 
         Args:
@@ -931,7 +931,8 @@ class NProphetForecaster:
             total_working_days (int): 전체 영업일 수.
 
         Returns:
-            float: 하한 보정이 적용된 최종 예측치.
+            tuple[float, float]: 하한 보정이 적용된 예측치와
+            동적으로 계산된 패턴 가중치.
         """
 
         remaining_ratio = max(0.0, 1 - working_days_so_far / total_working_days)
@@ -940,7 +941,7 @@ class NProphetForecaster:
         blended = (pattern_based_projection * w_dynamic) + (
             ai_prediction * (1 - w_dynamic)
         )
-        return max(blended, actual_so_far)
+        return max(blended, actual_so_far), w_dynamic
 
     def run(self, date_column="DeliveryDate"):
         """예측 파이프라인 전체를 실행한다.
@@ -1039,15 +1040,13 @@ class NProphetForecaster:
             else actual_del_todate
         )
 
-        final_monthly_mean = self._blend_current_month_projection(
+        final_monthly_mean, w_pattern_dynamic = self._blend_current_month_projection(
             pattern_based_projection,
             model_based_monthly_pred_mean,
             actual_del_todate,
             working_days_so_far,
             current_month_wd,
         )
-        remaining_ratio = max(0.0, 1 - working_days_so_far / current_month_wd)
-        w_pattern_dynamic = self.config["PATTERN_WEIGHT"] * remaining_ratio
         final_monthly_lower = final_monthly_mean - self.conformal_delta
         final_monthly_upper = final_monthly_mean + self.conformal_delta
 
