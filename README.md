@@ -36,5 +36,7 @@
 
 ## 기본 설정
 `nProphet.py` 실행을 위한 주요 설정 값은 스크립트 하단의 `config` 딕셔너리에 정의되어 있습니다. 
-특히 `PATTERN_WEIGHT`와 `ENSEMBLE_WEIGHT_MLP`는 초기 가중치로 사용되며, 
+특히 `PATTERN_WEIGHT`와 `ENSEMBLE_WEIGHT_MLP`는 초기 가중치로 사용되며,
 하이퍼파라미터 최적화 과정에서 자동으로 조정됩니다. 기본값은 두 항목 모두 `0.5`입니다.
+또한 `SIMULATION_DAY_OF_MONTH`에 정수를 지정하면 해당 일자 기준으로 백테스트를 수행하며,
+`auto`(또는 `today`)로 설정하면 실행 당일 날짜를 사용합니다.

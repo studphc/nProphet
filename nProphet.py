@@ -107,6 +107,31 @@ class NProphetForecaster:
             first_of_month.strftime("%Y-%m-%d"),
         )
 
+    def _compute_simulation_date(self, base_date: pd.Timestamp) -> pd.Timestamp:
+        """시뮬레이션 날짜를 계산한다.
+
+        Args:
+            base_date (pd.Timestamp): 기준이 되는 날짜.
+
+        Returns:
+            pd.Timestamp: 계산된 시뮬레이션 날짜.
+        """
+
+        sim_day_setting = self.config.get("SIMULATION_DAY_OF_MONTH", 20)
+        if isinstance(sim_day_setting, str) and sim_day_setting.lower() in (
+            "auto",
+            "today",
+        ):
+            day_value = self.today.day
+        else:
+            try:
+                day_value = int(sim_day_setting)
+            except (ValueError, TypeError):
+                day_value = 20
+
+        day_value = max(1, min(day_value, base_date.days_in_month))
+        return base_date.replace(day=day_value)
+
     def _connect_db(self):
         """DuckDB 연결을 생성한다."""
 
@@ -371,10 +396,7 @@ class NProphetForecaster:
                     * self.config["Y_SCALE"]
                     * test_df["working_days"].iloc[0]
                 )
-                sim_day = self.config.get("SIMULATION_DAY_OF_MONTH", 20)
-                sim_date = cutoff_date.replace(
-                    day=min(sim_day, cutoff_date.days_in_month)
-                )
+                sim_date = self._compute_simulation_date(cutoff_date)
                 actual_so_far_df = self.stock_base_df[
                     (self.stock_base_df[date_column].notna())
                     & (self.stock_base_df[date_column] >= cutoff_date)
