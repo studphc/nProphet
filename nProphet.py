@@ -222,12 +222,15 @@ class NProphetForecaster:
         """월별 계절성 보정 계수를 계산한다."""
 
         cutoff = self.first_of_month - pd.offsets.MonthBegin(1)
-        sf_base = df_hist[(df_hist["ds"] < cutoff) & (df_hist["y"] > 0)].copy()
-        print(f"Calculating seasonal factors (up to {cutoff.strftime('%Y-%m')})...")
+        df_hist = df_hist.copy()
+        df_hist["ds"] = pd.to_datetime(df_hist["ds"], errors="coerce")
+        sf_base = df_hist[(df_hist["ds"] < cutoff) & (df_hist["y"] > 0)]
+        print(f"Calculating seasonal factors (up to {cutoff.strftime("%Y-%m")})...")
         if sf_base.empty:
             print("Not enough valid data for factors.")
             self.seasonal_factors = {m: 1.0 for m in range(1, 13)}
             return
+        sf_base["ds"] = pd.to_datetime(sf_base["ds"], errors="coerce")
         sf_base["month"] = sf_base["ds"].dt.month
         monthly_avg = sf_base.groupby("month")["y"].mean()
         overall_avg = sf_base["y"].mean()
