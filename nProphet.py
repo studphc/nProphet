@@ -319,7 +319,10 @@ class NProphetForecaster:
     def optimize_hyperparams_and_weights(
         self, df_full_features, feature_names, date_column
     ):
-        """Optuna를 활용해 하이퍼파라미터와 가중치를 탐색한다."""
+        """Optuna를 활용해 하이퍼파라미터와 가중치를 탐색한다.
+
+        CPU 코어 수만큼 병렬로 탐색 작업을 수행한다.
+        """
 
         print("\n" + "=" * 50)
         print("--- Optimizing Hyperparameters & Weights via Backtesting ---")
@@ -436,8 +439,12 @@ class NProphetForecaster:
 
         pruner = optuna.pruners.MedianPruner()
         study = optuna.create_study(direction="minimize", pruner=pruner)
+        n_jobs = os.cpu_count() or 1
         study.optimize(
-            objective, n_trials=self.config["N_TRIALS"], show_progress_bar=True
+            objective,
+            n_trials=self.config["N_TRIALS"],
+            show_progress_bar=True,
+            n_jobs=n_jobs,
         )
         self.best_params = study.best_trial.params
         # 초기 설정이 없을 수 있으므로 기본값을 사용해 안전하게 갱신
@@ -488,7 +495,10 @@ class NProphetForecaster:
         print("Final MLP model re-fitting completed.")
 
     def train_lightgbm_model(self, df_full_features, feature_names):
-        """LightGBM 모델을 학습한다."""
+        """LightGBM 모델을 학습한다.
+
+        GPU 사용 가능 시 GPU 모드로 학습한다.
+        """
 
         print("Training LightGBM model...")
         X_train, y_train = df_full_features[feature_names], df_full_features["y_norm"]
@@ -501,6 +511,8 @@ class NProphetForecaster:
             "n_jobs": -1,
             "seed": self.config["SEED"],
         }
+        if torch.cuda.is_available():
+            lgbm_params.update({"device_type": "gpu", "gpu_device_id": 0})
         self.lgbm_model = lgbm.LGBMRegressor(**lgbm_params)
         with self.suppress_stdout():
             self.lgbm_model.fit(

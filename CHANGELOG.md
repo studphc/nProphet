@@ -6,3 +6,5 @@
 - 당월 예측값이 현재 확정 매출보다 작지 않도록 하한 보정 로직 추가.
 - 모든 메서드에 한글 docstring을 작성.
 - `SIMULATION_DAY_OF_MONTH`에 `auto` 옵션을 추가해 실행 시점 날짜 자동 적용.
+- GPU 사용 시 LightGBM을 GPU 모드로 학습하도록 옵션 추가.
+- Optuna 하이퍼파라미터 탐색을 CPU 코어 수만큼 병렬화.
