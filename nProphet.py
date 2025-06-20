@@ -84,14 +84,17 @@ class NProphetForecaster:
     @staticmethod
     @contextmanager
     def suppress_stdout():
-        """콘솔 출력을 일시적으로 숨긴다."""
+        """콘솔과 에러 출력을 일시적으로 숨긴다."""
         with open(os.devnull, "w") as devnull:
             old_stdout = sys.stdout
+            old_stderr = sys.stderr
             sys.stdout = devnull
+            sys.stderr = devnull
             try:
                 yield
             finally:
                 sys.stdout = old_stdout
+                sys.stderr = old_stderr
 
     def _initialize_dates(self):
         """날짜 관련 기본 값을 계산한다."""
