@@ -64,6 +64,21 @@ class NProphetForecaster:
         self.conformal_delta = 0.0
         self.lgbm_feature_names_ = None
 
+        self.seasonal_factors = {
+            1: 1.07,
+            2: 1.04,
+            3: 1.10,
+            4: 1.09,
+            5: 1.00,
+            6: 0.98,
+            7: 0.85,
+            8: 0.86,
+            9: 0.94,
+            10: 1.02,
+            11: 0.90,
+            12: 0.88,
+        }
+
     @staticmethod
     @contextmanager
     def suppress_stdout():
@@ -156,16 +171,8 @@ class NProphetForecaster:
         self.daily_weights_del = final_weights
 
     def calculate_seasonal_factors(self, df_hist):
-        cutoff = self.first_of_month - pd.offsets.MonthBegin(1)
-        sf_base = df_hist[(df_hist['ds'] < cutoff) & (df_hist['y'] > 0)].copy()
-        print(f"Calculating seasonal factors (up to {cutoff.strftime('%Y-%m')})...")
-        if sf_base.empty:
-            print("Not enough valid data for factors."); self.seasonal_factors = {m: 1.0 for m in range(1, 13)}; return
-        sf_base['month'] = sf_base['ds'].dt.month
-        monthly_avg = sf_base.groupby('month')['y'].mean()
-        overall_avg = sf_base['y'].mean()
-        self.seasonal_factors = (monthly_avg / overall_avg).to_dict()
-        print(f"Seasonal Factors:", {k: round(v, 2) for k, v in self.seasonal_factors.items()})
+        print("Setting fixed seasonal factors...")
+        print(f"Seasonal Factors: {self.seasonal_factors}")
         
     def create_features(self, df):
         df = df.merge(self.wd_lookup.reset_index(name='working_days'), on='ds', how='left')
@@ -325,7 +332,8 @@ class NProphetForecaster:
             known_commitment = future_commitments.get(m_date, 0.0)
             final_mean = max(adjusted_ai_mean, known_commitment)
             forecast_source = "AI 주도" if final_mean == adjusted_ai_mean else "확정매출 기반"
-            final_lower, final_upper = final_mean - self.conformal_delta, final_mean + self.conformal_delta
+            final_lower = final_mean * (1 - self.conformal_delta)
+            final_upper = final_mean * (1 + self.conformal_delta)
             future_months_list.append({'ds': m_date, 'yhat': final_mean, 'yhat_lower': final_lower, 'yhat_upper': final_upper,
                                        'ai_forecast': adjusted_ai_mean, 'commitment': known_commitment, 'source': forecast_source})
         return pd.DataFrame(future_months_list)
@@ -407,14 +415,16 @@ class NProphetForecaster:
         return eval_df, {'SMAPE': smape, 'MAE': mae}
 
     def _calculate_conformal_delta(self, backtest_eval_df):
-        print("Calibrating prediction interval with Conformal method...")
+        print("Calibrating prediction interval with relative residuals...")
         if backtest_eval_df.empty:
             print("Warning: Backtest data is empty."); self.conformal_delta = 0.0; return
         target_alpha = self.config['CONFORMAL_ALPHA']
-        abs_residuals = np.abs(backtest_eval_df['y_true'] - backtest_eval_df['yhat'])
-        delta_q = np.quantile(abs_residuals, 1 - target_alpha)
-        self.conformal_delta = delta_q
-        print(f"Conformal delta (q_hat) for {100*(1-target_alpha):.1f}% CI calculated: {delta_q:,.0f} KRW")
+        abs_pct = np.abs(backtest_eval_df['y_true'] - backtest_eval_df['yhat']) / backtest_eval_df['y_true'].replace(0, np.nan)
+        abs_pct = abs_pct.clip(upper=abs_pct.quantile(0.95))
+        forecast_q = self.first_of_month.quarter
+        delta_pct = abs_pct[backtest_eval_df['ds'].dt.quarter.eq(forecast_q)].quantile(1 - target_alpha)
+        self.conformal_delta = float(delta_pct)
+        print(f"Relative delta for {100*(1-target_alpha):.1f}% CI: {delta_pct*100:.2f}%")
 
     def _save_report_to_file(self, report_data):
         path = self.config['REPORT_SAVE_PATH']
@@ -430,7 +440,9 @@ class NProphetForecaster:
                 f.write(f"- SMAPE (평균 오차율)       : {eval_res.get('SMAPE', 0):.2f} %\n")
                 f.write(f"- MAE (평균 오차액)         : {eval_res.get('MAE', 0):,.0f} KRW\n")
                 f.write(f"- PICP (신뢰구간 포함률) : {eval_res.get('PICP', 0):.2f} % (Conformal 보정 후)\n")
-                f.write(f"- 보정된 구간 너비 (상하) : ± {report_data.get('conformal_delta', 0):,.0f} KRW\n\n")
+                f.write(
+                    f"- 보정된 구간 너비 (상하) : ± {report_data.get('conformal_delta', 0)*100:.1f} %\n\n"
+                )
             f.write(f"### 현재 월 진행상황 ({self.today.strftime('%Y-%m-%d')} 기준)\n")
             if report_data.get('optimal_weights'):
                 f.write(f"- 확정된 최적 가중치 (패턴/앙상블): {report_data['optimal_weights']['w_pattern']:.2f} / {report_data['optimal_weights']['w_mlp']:.2f}\n")
@@ -510,6 +522,8 @@ class NProphetForecaster:
         df_hist = self.stock_base_df[(self.stock_base_df[date_column].notna()) & (self.stock_base_df[date_column] < self.first_of_month)].copy()
         df_hist['ds'] = df_hist[date_column].dt.to_period('M').dt.to_timestamp()
         df_hist = df_hist.groupby('ds').agg(y=('NetAmount', 'sum')).reset_index()
+        df_hist_raw = df_hist.copy()
+        df_hist['y'] = df_hist['y'] / df_hist['ds'].dt.month.map(self.seasonal_factors)
         
         if len(df_hist) < self.config['CV_SPLITS'] * 2:
             print(f"Not enough historical data. Need > {self.config['CV_SPLITS'] * 2} months."); return
@@ -528,13 +542,18 @@ class NProphetForecaster:
         if backtest_results_df is not None:
             self._calculate_conformal_delta(backtest_results_df)
             self._plot_residuals_histogram(backtest_results_df)
-            backtest_results_df['yhat_lower_conf'] = backtest_results_df['yhat'] - self.conformal_delta
-            backtest_results_df['yhat_upper_conf'] = backtest_results_df['yhat'] + self.conformal_delta
+            backtest_results_df['yhat_lower_conf'] = backtest_results_df['yhat'] * (1 - self.conformal_delta)
+            backtest_results_df['yhat_upper_conf'] = backtest_results_df['yhat'] * (1 + self.conformal_delta)
             evaluation_results['PICP'] = np.mean((backtest_results_df['y_true'] >= backtest_results_df['yhat_lower_conf']) & (backtest_results_df['y_true'] <= backtest_results_df['yhat_upper_conf'])) * 100
         
         model_pred_dist = self._get_monthly_prediction_distribution(df_full_features.tail(1))
         current_month_wd = self.wd_lookup.get(self.first_of_month, int(self.wd_lookup.median()))
-        model_based_monthly_pred_mean = np.mean(model_pred_dist) * self.config['Y_SCALE'] * current_month_wd
+        model_based_monthly_pred_mean = (
+            np.mean(model_pred_dist)
+            * self.config['Y_SCALE']
+            * current_month_wd
+            * self.seasonal_factors.get(self.first_of_month.month, 1.0)
+        )
         
         actual_del_todate_df = self.stock_base_df[self.stock_base_df[date_column].dt.to_period('M').dt.to_timestamp() == self.first_of_month]
         actual_del_todate = actual_del_todate_df[actual_del_todate_df[date_column] <= self.today]['NetAmount'].sum()
@@ -545,14 +564,16 @@ class NProphetForecaster:
         pattern_based_projection = (actual_del_todate / cumulative_weight_so_far) if cumulative_weight_so_far > 0 else actual_del_todate 
         
         w_pattern = self.config['PATTERN_WEIGHT']
-        final_monthly_mean = (pattern_based_projection * w_pattern) + (model_based_monthly_pred_mean * (1 - w_pattern))
-        final_monthly_lower = final_monthly_mean - self.conformal_delta
-        final_monthly_upper = final_monthly_mean + self.conformal_delta
+        final_monthly_mean = (pattern_based_projection * w_pattern) + (
+            model_based_monthly_pred_mean * (1 - w_pattern)
+        )
+        final_monthly_lower = final_monthly_mean * (1 - self.conformal_delta)
+        final_monthly_upper = final_monthly_mean * (1 + self.conformal_delta)
         
         future_commitments = self._get_future_commitments(date_column)
         future_preds_df = self._generate_future_forecast(df_full_features, future_commitments)
         
-        ytd_actual = df_hist[df_hist['ds'].dt.year == self.today.year]['y'].sum()
+        ytd_actual = df_hist_raw[df_hist_raw['ds'].dt.year == self.today.year]['y'].sum()
         annual_pred_mean = ytd_actual + final_monthly_mean + future_preds_df['yhat'].sum()
         annual_pred_lower = ytd_actual + final_monthly_lower + future_preds_df['yhat_lower'].sum()
         annual_pred_upper = ytd_actual + final_monthly_upper + future_preds_df['yhat_upper'].sum()
@@ -566,7 +587,7 @@ class NProphetForecaster:
             'annual_final': {'mean': annual_pred_mean, 'lower': annual_pred_lower, 'upper': annual_pred_upper}}
         
         self._save_report_to_file(report_data)
-        self._plot_forecast_results(df_hist, report_data['current_month_final'], future_preds_df)
+        self._plot_forecast_results(df_hist_raw, report_data['current_month_final'], future_preds_df)
         self.save_model()
 
 
