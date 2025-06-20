@@ -549,6 +549,18 @@ class NProphetForecaster:
         future_data["ds"] = future_data[date_column].dt.to_period("M").dt.to_timestamp()
         return future_data.groupby("ds")["NetAmount"].sum()
 
+    def _get_known_invoices_current_month(self, date_column):
+        """이번 달 기준일 이후에 이미 인지된 인보이스 금액을 조회한다."""
+
+        df = self.stock_base_df[
+            (self.stock_base_df[date_column] > self.today)
+            & (self.stock_base_df[date_column] < self.first_of_next_month)
+        ].copy()
+        if df.empty:
+            return 0.0, self.today
+        last_date = df[date_column].max().normalize()
+        return df["NetAmount"].sum(), last_date
+
     def _generate_future_forecast(self, df_full_features, future_commitments):
         """미래 월의 하이브리드 예측 값을 생성한다."""
 
@@ -1045,10 +1057,15 @@ class NProphetForecaster:
             actual_del_todate_df[date_column] <= self.today
         ]["NetAmount"].sum()
 
+        last_inv_date = self.today
+        if self.config.get("INCLUDE_KNOWN_INVOICES", False):
+            add_amt, last_inv_date = self._get_known_invoices_current_month(date_column)
+            actual_del_todate += add_amt
+
         working_days_so_far = len(
             self.calendar_full[
                 (self.calendar_full["ds"] == self.first_of_month)
-                & (self.calendar_full["Date"] <= self.today)
+                & (self.calendar_full["Date"] <= last_inv_date)
                 & (self.calendar_full["IsHoliday"] == 0)
             ]
         )
@@ -1149,6 +1166,7 @@ if __name__ == "__main__":
         "BACKTEST_TUNE_EPOCHS": 50,
         "CONFORMAL_ALPHA": 0.05,
         "SIMULATION_DAY_OF_MONTH": 20,
+        "INCLUDE_KNOWN_INVOICES": False,
     }
 
     forecaster = NProphetForecaster(config)
