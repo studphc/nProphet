@@ -86,19 +86,19 @@ class NProphetForecaster:
     def suppress_stdout():
         """콘솔과 에러 출력을 일시적으로 숨긴다."""
 
-        with open(os.devnull, "w") as devnull:
-            old_stdout_fd = os.dup(sys.__stdout__.fileno())
-            old_stderr_fd = os.dup(sys.__stderr__.fileno())
+        with open(os.devnull, "w") as devnull_out, open(os.devnull, "w") as devnull_err:
+            old_stdout_fd = os.dup(1)
+            old_stderr_fd = os.dup(2)
             old_stdout, old_stderr = sys.stdout, sys.stderr
-            sys.stdout = devnull
-            sys.stderr = devnull
-            os.dup2(devnull.fileno(), sys.__stdout__.fileno())
-            os.dup2(devnull.fileno(), sys.__stderr__.fileno())
+            sys.stdout = devnull_out
+            sys.stderr = devnull_err
+            os.dup2(devnull_out.fileno(), 1)
+            os.dup2(devnull_err.fileno(), 2)
             try:
                 yield
             finally:
-                os.dup2(old_stdout_fd, sys.__stdout__.fileno())
-                os.dup2(old_stderr_fd, sys.__stderr__.fileno())
+                os.dup2(old_stdout_fd, 1)
+                os.dup2(old_stderr_fd, 2)
                 os.close(old_stdout_fd)
                 os.close(old_stderr_fd)
                 sys.stdout = old_stdout

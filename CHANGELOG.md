@@ -10,3 +10,4 @@
 - Optuna 하이퍼파라미터 탐색을 CPU 코어 수만큼 병렬화.
 - LightGBM 경고 메시지를 억제해 콘솔 로그를 깔끔하게 유지.
   (STDERR 뿐 아니라 내부 C 출력도 차단)
+- suppress_stdout 구현을 개선해 종료 시 'lost sys.stderr' 오류가 발생하지 않도록 수정.
