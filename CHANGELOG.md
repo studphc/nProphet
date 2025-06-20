@@ -9,3 +9,4 @@
 - AutoGluon Time Series 기반 단순 예측 스크립트 `autogloun.py` 추가.
 - 해당 스크립트를 위한 단위 테스트 `test_autogloun.py` 작성.
 - `holidays` 미사용 오류 수정 및 의존성 업데이트.
+- AutoGluon API 변경으로 `freq` 인자를 제거하여 스크립트 실행 오류 수정.

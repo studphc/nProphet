@@ -231,7 +231,7 @@ class AutoGluonForecaster:
         """AutoGluon TimeSeriesPredictor 학습."""
         ts_df = df_hist.rename(columns={"ds": "timestamp", "y": "target"}).copy()
         ts_df["item_id"] = "sales"
-        ts_data = TimeSeriesDataFrame.from_data_frame(ts_df, freq="MS")
+        ts_data = TimeSeriesDataFrame.from_data_frame(ts_df)
         with self.suppress_stdout():
             self.predictor = TimeSeriesPredictor(
                 prediction_length=1, target="target", freq="MS"
