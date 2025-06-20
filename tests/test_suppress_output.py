@@ -1,4 +1,5 @@
 import sys
+import os
 from nProphet import NProphetForecaster
 
 
@@ -14,6 +15,9 @@ def test_suppress_stdout_hides_stderr(monkeypatch, capsys):
     def emit():
         print("visible")
         print("error", file=sys.stderr)
+        # simulate C-level writes
+        os.write(sys.stdout.fileno(), b"native")
+        os.write(sys.stderr.fileno(), b"native")
 
     with fc.suppress_stdout():
         emit()

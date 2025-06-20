@@ -9,3 +9,4 @@
 - GPU 사용 시 LightGBM을 GPU 모드로 학습하도록 옵션 추가.
 - Optuna 하이퍼파라미터 탐색을 CPU 코어 수만큼 병렬화.
 - LightGBM 경고 메시지를 억제해 콘솔 로그를 깔끔하게 유지.
+  (STDERR 뿐 아니라 내부 C 출력도 차단)
